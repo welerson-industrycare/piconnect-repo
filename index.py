@@ -1,10 +1,35 @@
 import os
+import psycopg2
 import requests
 import json
 from requests.auth import HTTPBasicAuth
 from datetime import date, datetime, timedelta
 from dotenv import load_dotenv
 
+
+def connect():
+
+    conn = None
+
+    dbname = os.environ['DB_NAME']
+    user = os.environ['DB_USER']
+    password = os.environ['DB_PASSWORD']
+    host = os.environ['DB_HOST']   
+    
+    try:
+        conn = psycopg2.connect(
+            dbname = dbname,
+            user = user,
+            password = password,
+            host = host
+        )
+
+    except Exception as error:
+        print(error)
+
+    finally:
+        if conn is not None:
+            return conn
 
 def round_date(date):
 
@@ -66,8 +91,10 @@ def set_date(date):
 
 def set_processes(data, tag):
 
-    if len(data) > 0:
+    if len(data) != 0:
 
+        date = set_date(data[0]['Timestamp'])
+        update_data_log(date, tag)
         registers = []
 
         for d in data:
@@ -86,6 +113,11 @@ def set_processes(data, tag):
 
         send_registers(registers)
 
+    else:
+        last_register = get_last_processes(tag)
+        insert_data_log(last_register, tag)
+
+
 
 def set_processes_filters(data, tag):
 
@@ -93,46 +125,48 @@ def set_processes_filters(data, tag):
     cycle = []
     cycle_dict = {}
 
-    lot = get_lot()
+    if len(data) != 0:
 
-    if len(lot) > 1:
-        lot_1 = lot[-2]
-        lot_2 = lot[-1]
-    else:
-        lot_1 = lot[0]
+        date = set_date(data[0]['Timestamp'])
+        update_data_log(date, tag)
 
-    cycle_re = get_cycle()
+        lot = get_lot()
 
-    prev = ''
-
-    for c in cycle_re:
-        if c['f_value'] == prev:
-            cycle_dict[c['f_value']]['datetime_read'] = c['datetime_read']
+        if len(lot) > 1:
+            lot_1 = lot[-2]
+            lot_2 = lot[-1]
         else:
-            cycle_dict[c['f_value']] = c
-            prev = c['f_value']
-            
-    for c in cycle_dict:
-        cycle.append(cycle_dict[c])
+            lot_1 = lot[0]
 
-    if len(lot) > 1:
-        lot_date_1 = datetime.strptime(lot_1['datetime_read'].split('-03:')[0], '%Y-%m-%dT%H:%M:%S')
+        cycle_re = get_cycle()
 
-        for c in cycle:
-            cycle_date = datetime.strptime(c['datetime_read'].split('-03:')[0], '%Y-%m-%dT%H:%M:%S')
+        prev = ''
 
-            if cycle_date <= lot_date_1:
-                cycle_1 = c
+        for c in cycle_re:
+            if c['f_value'] == prev:
+                cycle_dict[c['f_value']]['datetime_read'] = c['datetime_read']
             else:
-                cycle_2 = c
-    else:
-        lot_date_1 = datetime.strptime(lot_1['datetime_read'].split('-03:')[0], '%Y-%m-%dT%H:%M:%S')
-        for c in cycle:
-            cycle_date = datetime.strptime(c['datetime_read'].split('-03:')[0], '%Y-%m-%dT%H:%M:%S')
-            cycle_1 = c
+                cycle_dict[c['f_value']] = c
+                prev = c['f_value']
+                
+        for c in cycle_dict:
+            cycle.append(cycle_dict[c])
 
+        if len(lot) > 1:
+            lot_date_1 = datetime.strptime(lot_1['datetime_read'].split('-03:')[0], '%Y-%m-%dT%H:%M:%S')
 
-    if len(data) > 0: 
+            for c in cycle:
+                cycle_date = datetime.strptime(c['datetime_read'].split('-03:')[0], '%Y-%m-%dT%H:%M:%S')
+
+                if cycle_date <= lot_date_1:
+                    cycle_1 = c
+                else:
+                    cycle_2 = c
+        else:
+            lot_date_1 = datetime.strptime(lot_1['datetime_read'].split('-03:')[0], '%Y-%m-%dT%H:%M:%S')
+            for c in cycle:
+                cycle_date = datetime.strptime(c['datetime_read'].split('-03:')[0], '%Y-%m-%dT%H:%M:%S')
+                cycle_1 = c
 
         for d in data:
 
@@ -204,6 +238,10 @@ def set_processes_filters(data, tag):
 
         send_registers(registers)
 
+    else:
+        date = get_last_filters(tag)
+        insert_data_log(date, tag)
+
 
 
 def set_measurement(data, tag, now):
@@ -213,6 +251,8 @@ def set_measurement(data, tag, now):
 
     if len(data) > 0:
 
+        date = set_date(data[0]['Timestamp'])
+        update_data_log(date, tag)
         date = now - timedelta(minutes=1)
         datetime_read = date.strftime('%Y-%m-%dT%H:%M:%S')
 
@@ -261,16 +301,16 @@ def set_measurement(data, tag, now):
 
         send_registers(registers)
 
+    else:
+        date = get_last_measurement(tag)
+        insert_data_log(date, tag)
 
 
 def get_lot():
 
     registers = []
-
     tag = "AR.LGC.Numero_Lote_Processo"
-
     url = "https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZw3H8BAATUVTLVBJLVBST0RcQVIuTEdDLk5VTUVST19MT1RFX1BST0NFU1NP/recorded?filterexpression=BadVal('.')=0&startTime=-1h"
-
     res = requests.get(url, verify=False, auth=HTTPBasicAuth(user, password))
 
     try:
@@ -278,23 +318,32 @@ def get_lot():
         if 'Items' in body.keys():
             data = body['Items']
     except Exception as error:
-        print(error) 
-    
-    for d in data:
-        register = set_data(d, tag)
-        if len(register) > 0:
-            registers.append(register)
+        print(error)
 
-    return registers
+    if len(data) != 0:
+
+        date = set_date(data[0]['Timestamp'])
+        update_data_log(date, tag)
+    
+        for d in data:
+            register = set_data(d, tag)
+            if len(register) > 0:
+                registers.append(register)
+
+        return registers
+
+    else:
+        date = get_last_filters(tag)
+        insert_data_log(date, tag)
+        return []
 
 
 
 def get_cycle():
 
+    registers = []
     tag = "AR.LGC.Ciclo_Lote_Processo"
-
     url = "https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwIIoBAATUVTLVBJLVBST0RcQVIuTEdDLkNJQ0xPX0xPVEVfUFJPQ0VTU08/recorded?filterexpression=BadVal('.')=0&startTime=-1h"
-
     res = requests.get(url, verify=False, auth=HTTPBasicAuth(user, password))
 
     try:
@@ -304,12 +353,21 @@ def get_cycle():
     except Exception as error:
         print(error) 
     
-    for d in data:
-        register = set_data(d, tag)
-        if len(register) > 0:
-            registers.append(register)
+    if len(data) != 0:
 
-    return registers
+        date = set_date(data[0]['Timestamp'])
+        update_data_log(date, tag)
+    
+        for d in data:
+            register = set_data(d, tag)
+            if len(register) > 0:
+                registers.append(register)
+
+        return registers
+
+    else:
+        date = get_last_filters(tag)
+        insert_data_log(date, tag)
 
 
 
@@ -324,6 +382,7 @@ def set_data(data, tag):
         register['f_value'] = data['Value']
 
     return register
+
 
 def send_registers(data):
 
@@ -340,6 +399,155 @@ def send_registers(data):
     response = requests.post(API_ENDPOINT, data=registers, headers=headers)
 
 
+def insert_data_log(date, tag):
+
+    data = (date, tag)
+
+    conn = None
+    sql = """
+            INSERT INTO online_data_log (datetime_without, id_capture)
+                VALUES (%s, %s)
+            ON CONFLICT ON CONSTRAINT date_capture_uniq
+            DO NOTHING;
+    """
+
+    try:
+        conn = connect()
+        cur = conn.cursor()
+        cur.execute(sql, data)
+        cur.close()
+        conn.commit()    
+    except Exception as error:
+        print(error)
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+def update_data_log(date, tag):
+
+    data = (date, tag)
+    row = 0
+
+    conn = None
+    sql = """
+        UPDATE online_data_log
+            SET datetime_with=%s
+            WHERE id_capture=%s and datetime_with IS NULL;
+    """
+
+    try:
+        conn = connect()
+        cur = conn.cursor()
+        cur.execute(sql, data)
+        row = cur.rowcount
+        cur.close()
+        conn.commit()    
+    except Exception as error:
+        print(error)
+    finally:
+        if conn is not None:
+            conn.close()
+            return row
+
+
+
+def get_last_processes(tag):
+
+    conn = None
+    data = None
+    arg = {'id_capture':tag}
+    sql = f"""
+        SELECT 
+        p.datetime_read
+        FROM processes p
+        LEFT JOIN plant_equipment e ON e.plant_equipment_id = p.plant_equipment_id
+        WHERE e.id_capture = %(id_capture)s
+        ORDER BY 1 DESC
+        LIMIT 1  
+    """
+
+    try:
+        conn = connect()
+        cur = conn.cursor()
+        cur.execute(sql, arg)
+        data = cur.fetchone()
+        cur.close()
+    except Exception as error:
+        print(error)
+    finally:
+        if conn is not None:
+            conn.close()
+            return data
+
+
+
+def get_last_measurement(tag):
+
+    conn = None
+    data = None
+    arg = {'id_capture':tag}
+    sql = f"""
+        SELECT 
+        m.datetime_read
+        FROM measurement m
+        LEFT JOIN plant_equipment e ON e.plant_equipment_id = m.plant_equipment_id
+        WHERE e.id_capture = %(id_capture)s
+        ORDER BY 1 DESC
+        LIMIT 1  
+    """
+
+    try:
+        conn = connect()
+        cur = conn.cursor()
+        cur.execute(sql, arg)
+        data = cur.fetchone()
+        cur.close()
+    except Exception as error:
+        print(error)
+    finally:
+        if conn is not None:
+            conn.close()
+            return data
+
+
+def get_last_filters(tag):
+
+    map_tag = {
+        'AR.LGC.Largura_Lote_Processo':'width',
+        'AR.LGC.REVESTIMENTO_INFERIOR':'inf_coating',
+        'AR.LGC.REVESTIMENTO_SUPERIOR':'sup_coating',
+        'AR.LGC.Numero_Lote_Processo':'lot',
+        'AR.LGC.Ciclo_Lote_Processo':'cycle_re',
+        'AR.LGC.ESPESSURA':'thickness'
+    }
+
+    column = map_tag[tag]
+
+    conn = None
+    data = None
+    sql = f"""
+        SELECT 
+        datetime_read
+        FROM filter_processes 
+        WHERE {column} IS NOT NULL
+        ORDER BY 1 DESC
+        LIMIT 1 
+    """
+
+    try:
+        conn = connect()
+        cur = conn.cursor()
+        cur.execute(sql)
+        data = cur.fetchone()
+        cur.close()
+    except Exception as error:
+        print(error)
+    finally:
+        if conn is not None:
+            conn.close()
+            return data
+
 
 
 if __name__ == '__main__':
@@ -355,7 +563,7 @@ if __name__ == '__main__':
         "AR.LGC.Velocidade_Processo":"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwmn8BAATUVTLVBJLVBST0RcQVIuTEdDLlZFTE9DSURBREVfUFJPQ0VTU08/recorded?filterexpression=BadVal('.')=0&startTime=-5m",
         "AR.LGC.Temperatura_Tira_RTH":"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwqH8BAATUVTLVBJLVBST0RcQVIuTEdDLlRFTVBFUkFUVVJBX1RJUkFfUlRI/recorded?filterexpression=BadVal('.')=0&startTime=-5m",
         "AR.LGC.REVESTIMENTO_INFERIOR":"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwg_EBAATUVTLVBJLVBST0RcQVIuTEdDLlJFVkVTVElNRU5UT19JTkZFUklPUg/recorded?filterexpression=BadVal('.')=0&startTime=-5m",
-        "AR.LGC.Concentracao_H2":"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwsX8BAATUVTLVBJLVBST0RcQVIuTEdDLkNPTkNFTlRSQUNBT19IMg/recorded?filterexpression=BadVal('.')=0&startTime=--5m",
+        "AR.LGC.Concentracao_H2":"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwsX8BAATUVTLVBJLVBST0RcQVIuTEdDLkNPTkNFTlRSQUNBT19IMg/recorded?filterexpression=BadVal('.')=0&startTime=-5m",
         "AR.LGC.Temperatura_Tira_JCS":"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwq38BAATUVTLVBJLVBST0RcQVIuTEdDLlRFTVBFUkFUVVJBX1RJUkFfSkNT/recorded?filterexpression=BadVal('.')=0&startTime=-5m",
         "AR.LGC.VAZAO_N2_FORNO":"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwi_EBAATUVTLVBJLVBST0RcQVIuTEdDLlZBWkFPX04yX0ZPUk5P/recorded?filterexpression=BadVal('.')=0&startTime=-5m",
         "AR.LGC.VAZAO_GN_FORNO":"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwjPEBAATUVTLVBJLVBST0RcQVIuTEdDLlZBWkFPX0dOX0ZPUk5P/recorded?filterexpression=BadVal('.')=0&startTime=-5m",
