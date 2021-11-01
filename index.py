@@ -6,6 +6,10 @@ import json
 from requests.auth import HTTPBasicAuth
 from datetime import date, datetime, timedelta
 from dotenv import load_dotenv
+import urllib3 
+import traceback
+
+
 
 
 def connect():
@@ -27,6 +31,7 @@ def connect():
 
     except Exception as error:
         print(error)
+        print(traceback.format_exc())
 
     finally:
         if conn is not None:
@@ -54,8 +59,13 @@ def round_date(date):
             second = str(date.second)[1]
 
             if date.second > 57:
-                minute += 1
-                second = '0'
+                if minute == 59:
+                    hour += 1
+                    minute = 0
+                    second = '0'
+                else:
+                    minute += 1
+                    second = '0'
             elif int(second) < 3:
                 second = str(date.second)[0] + '0'
             elif int(second) > 2 and int(second) < 8:
@@ -73,50 +83,68 @@ def round_date(date):
 
     except Exception as error:
         print(error)
+        print(traceback.format_exc())
 
 
 
 def set_date(date):
 
-    date_str = date.split('.')[0]
-    date_str = date_str.replace('Z', '')
-    date_time_obj = datetime.strptime(date_str, '%Y-%m-%dT%H:%M:%S')
-    date_time_obj = round_date(date_time_obj)    
-    hours = timedelta(hours=3)
-    date_time_obj = date_time_obj - hours
-    date_time = date_time_obj.strftime('%Y-%m-%dT%H:%M:%S-03:00')
+    try:
 
-    return date_time
+        date_str = date.split('.')[0]
+        date_str = date_str.replace('Z', '')
+        date_time_obj = datetime.strptime(date_str, '%Y-%m-%dT%H:%M:%S')
+        date_time_obj = round_date(date_time_obj)    
+        hours = timedelta(hours=3)
+        date_time_obj = date_time_obj - hours
+        date_time = date_time_obj.strftime('%Y-%m-%dT%H:%M:%S-03:00')
+
+        return date_time
+    
+    except Exception as error:
+        print(error)
+        print(traceback.format_exc())
 
 
 
 def set_processes(data, tag):
 
-    if len(data) != 0:
+    try:
+        global register_last_log
 
-        date = set_date(data[0]['Timestamp'])
-        update_data_log(date, tag)
-        registers = []
+        if len(data) != 0:
+            if register_last_log:
+                date = set_date(data[0]['Timestamp'])
+                update_data_log(date, tag)
+            registers = []
+            i = 1
+            total = len(data)
+            for d in data:
+                print(f'Processando {i} de {total}', end='\r')
+                i+= 1
 
-        for d in data:
+                datetime_read = set_date(d['Timestamp'])
 
-            datetime_read = set_date(d['Timestamp'])
+                registers.append({
+                    'capture_id':tag,
+                    'datetime_read':datetime_read,
+                    'p_value':d['Value']
+                })
 
-            registers.append({
-                'capture_id':tag,
-                'datetime_read':datetime_read,
-                'p_value':d['Value']
-            })
+                if len(registers) == 200:
+                    send_registers(registers)
+                    registers.clear()
 
-            if len(registers) == 200:
-                send_registers(registers)
-                registers.clear()
+            send_registers(registers)
 
-        send_registers(registers)
+        else:
+            if register_last_log:
+                last_register = get_last_processes(tag)
+                insert_data_log(last_register, tag)
 
-    else:
-        last_register = get_last_processes(tag)
-        insert_data_log(last_register, tag)
+    except Exception as error:
+        print(error)
+        print(traceback.format_exc())
 
 
 
@@ -126,123 +154,72 @@ def set_processes_filters(data, tag):
     cycle = []
     cycle_dict = {}
 
-    if len(data) != 0:
+    global register_last_log
 
-        date = set_date(data[0]['Timestamp'])
-        update_data_log(date, tag)
+    try:
 
-        lot = get_lot()
+        if len(data) != 0:
+            if register_last_log:
+                date = set_date(data[0]['Timestamp'])
+                update_data_log(date, tag)
 
-        if len(lot) > 1:
-            lot_1 = lot[-2]
-            lot_2 = lot[-1]
+            lot = get_lot()
+
+            cycle_re = get_cycle()
+
+            for d in data:
+                datetime_read = set_date(d['Timestamp'])
+                filter_date = datetime.strptime(datetime_read.replace('-03:00', ''), '%Y-%m-%dT%H:%M:%S')
+
+                for l in lot:
+                    lot_date = l['datetime_read'].replace('-03:00', '')
+                    lot_date = datetime.strptime(lot_date, '%Y-%m-%dT%H:%M:%S')
+
+                    if filter_date <= lot_date:
+                        tmp_lot = l
+                        break
+
+                for c in cycle_re:
+                    cycle_date = c['datetime_read'].replace('-03:00', '')
+                    cycle_date = datetime.strptime(cycle_date, '%Y-%m-%dT%H:%M:%S')
+
+                    if filter_date <= cycle_date:
+                        tmp_cycle = c
+                        break
+
+                registers.append({
+                    'capture_id':tmp_lot['capture_id'],
+                    'datetime_read':datetime_read,
+                    'f_value':tmp_lot['f_value']
+                })
+
+                registers.append({
+                    'capture_id':tmp_cycle['capture_id'],
+                    'datetime_read':datetime_read,
+                    'f_value':tmp_cycle['f_value']
+                })
+
+                registers.append({
+                    'capture_id':tag,
+                    'datetime_read':datetime_read,
+                    'f_value':str(d['Value'])
+                }) 
+
+                if len(registers) > 199 and  len(registers) < 204:
+                    send_registers(registers)
+                    registers.clear()
+
+            send_registers(registers)    
+            
+
         else:
-            lot_1 = lot[0]
+            if register_last_log:
+                date = get_last_filters(tag)
+                insert_data_log(date, tag)
 
-        cycle_re = get_cycle()
-
-        prev = ''
-
-        for c in cycle_re:
-            if c['f_value'] == prev:
-                cycle_dict[c['f_value']]['datetime_read'] = c['datetime_read']
-            else:
-                cycle_dict[c['f_value']] = c
-                prev = c['f_value']
-                
-        for c in cycle_dict:
-            cycle.append(cycle_dict[c])
-
-        if len(lot) > 1:
-            lot_date_1 = datetime.strptime(lot_1['datetime_read'].split('-03:')[0], '%Y-%m-%dT%H:%M:%S')
-
-            for c in cycle:
-                cycle_date = datetime.strptime(c['datetime_read'].split('-03:')[0], '%Y-%m-%dT%H:%M:%S')
-
-                if cycle_date <= lot_date_1:
-                    cycle_1 = c
-                else:
-                    cycle_2 = c
-        else:
-            lot_date_1 = datetime.strptime(lot_1['datetime_read'].split('-03:')[0], '%Y-%m-%dT%H:%M:%S')
-            for c in cycle:
-                cycle_date = datetime.strptime(c['datetime_read'].split('-03:')[0], '%Y-%m-%dT%H:%M:%S')
-                cycle_1 = c
-
-        for d in data:
-
-            datetime_read = set_date(d['Timestamp'])
-            filter_date = datetime.strptime(datetime_read.split('-03:')[0], '%Y-%m-%dT%H:%M:%S')
-
-            if len(lot) > 1:
-
-                if filter_date <= lot_date_1:
-
-                    registers.append({
-                            'capture_id':lot_1['capture_id'],
-                            'datetime_read':datetime_read,
-                            'f_value':str(lot_1['f_value'])
-                        })
-
-                    registers.append({
-                            'capture_id':cycle_1['capture_id'],
-                            'datetime_read':datetime_read,
-                            'f_value':str(cycle_1['f_value'])
-                        })               
-
-                    registers.append({
-                            'capture_id':tag,
-                            'datetime_read':datetime_read,
-                            'f_value':str(d['Value'])
-                        })
-                else:
-                    registers.append({
-                            'capture_id':lot_2['capture_id'],
-                            'datetime_read':datetime_read,
-                            'f_value':str(lot_2['f_value'])
-                        })
-
-                    registers.append({
-                            'capture_id':cycle_2['capture_id'],
-                            'datetime_read':datetime_read,
-                            'f_value':str(cycle_2['f_value'])
-                        })   
-
-                    registers.append({
-                            'capture_id':tag,
-                            'datetime_read':datetime_read,
-                            'f_value':str(d['Value'])
-                        })
-            else:
-                registers.append({
-                        'capture_id':lot_1['capture_id'],
-                        'datetime_read':datetime_read,
-                        'f_value':str(lot_1['f_value'])
-                    })
-
-                registers.append({
-                        'capture_id':cycle_1['capure_id'],
-                        'datetime_read':datetime_read,
-                        'f_value':str(cycle_1['f_value'])
-                    })               
-
-                registers.append({
-                        'capture_id':tag,
-                        'datetime_read':datetime_read,
-                        'f_value':str(d['Value'])
-                    })
-
-
-            if len(registers) > 199 and len(registers) < 205:
-                send_registers(registers)
-                registers.clear()
-
-        send_registers(registers)
-
-    else:
-        date = get_last_filters(tag)
-        insert_data_log(date, tag)
-
+    except Exception as error:
+        print(error)
+        print(traceback.format_exc())
 
 
 def set_measurement(data, tag):
@@ -253,206 +230,354 @@ def set_measurement(data, tag):
     prev_date = ''
     ctrl = 0
 
-    if len(data) > 0:
-        date = set_date(data[0]['Timestamp'])
-        update_data_log(date, tag)
+    global register_last_log
 
-        for d in data:
-            date = d['Timestamp'].split('.')[0]
-            minute = int(date.split(':')[-2])
+    try:
 
-            if minute == 16 and ctrl != 16:
-                ctrl = 16
-                tmp.append({
-                    'datetime_read':prev_date,
-                    'value_active':max(power)
-                })
-                power.clear()
-            elif minute == 31 and ctrl != 31:
-                ctrl = 31
-                tmp.append({
-                    'datetime_read':prev_date,
-                    'value_active':max(power)
-                })
-                power.clear()
-            elif minute == 46 and ctrl != 46:
-                ctrl = 46
-                tmp.append({
-                    'datetime_read':prev_date,
-                    'value_active':max(power)
-                })
-                power.clear()
-            elif minute == 1 and ctrl != 1:
-                ctrl = 1
-                tmp.append({
-                    'datetime_read':prev_date,
-                    'value_active':max(power)
-                })
-                power.clear()
+        if len(data) > 0:
+            if register_last_log:
+                date = set_date(data[0]['Timestamp'])
+                update_data_log(date, tag)
 
-            prev_date = d['Timestamp']
+            for d in data:
+                date = d['Timestamp'].split('.')[0]
+                minute = int(date.split(':')[-2])
 
-            power.append(d['Value'])
+                if minute == 16 and ctrl != 16:
+                    ctrl = 16
+                    tmp.append({
+                        'datetime_read':prev_date,
+                        'value_active':max(power)
+                    })
+                    power.clear()
+                elif minute == 31 and ctrl != 31:
+                    ctrl = 31
+                    tmp.append({
+                        'datetime_read':prev_date,
+                        'value_active':max(power)
+                    })
+                    power.clear()
+                elif minute == 46 and ctrl != 46:
+                    ctrl = 46
+                    tmp.append({
+                        'datetime_read':prev_date,
+                        'value_active':max(power)
+                    })
+                    power.clear()
+                elif minute == 1 and ctrl != 1:
+                    ctrl = 1
+                    tmp.append({
+                        'datetime_read':prev_date,
+                        'value_active':max(power)
+                    })
+                    power.clear()
 
-        tmp = tmp[1:-1]
+                prev_date = d['Timestamp']
 
-        for t in tmp:
+                power.append(d['Value'])
 
-            datetime_read = set_date(t['datetime_read'])        
+            tmp = tmp[1:-1]
 
-            registers.append({
-                    'capture_id':tag,
-                    'datetime_read': datetime_read,
-                    'value_active': t['value_active'],
-                    'value_reactive': 0,
-                    'consumption': 0,
-                    'period': 0,
-                    'is_point': True,
-                    'tension_phase_neutral_a': 0,
-                    'tension_phase_neutral_b': 0,
-                    'tension_phase_neutral_c': 0,
-                    'current_a': 0,
-                    'current_b': 0,
-                    'current_c': 0,
-                    'thd_tension_a': 0,
-                    'thd_tension_b': 0,
-                    'thd_tension_c': 0,
-                    'thd_current_a': 0,
-                    'thd_current_b': 0,
-                    'thd_current_c': 0,
-                    'power_active': 0,
-                    'power_reactive': 0,
-                    'consolidation_count': 0
-                })
+            for t in tmp:
 
-            if len(registers) == 200:
-                send_registers(registers)
-                registers.clear()
+                datetime_read = set_date(t['datetime_read'])        
 
-        send_registers(registers)
+                registers.append({
+                        'capture_id':tag,
+                        'datetime_read': datetime_read,
+                        'value_active': t['value_active'],
+                        'value_reactive': 0,
+                        'consumption': 0,
+                        'period': 0,
+                        'is_point': True,
+                        'tension_phase_neutral_a': 0,
+                        'tension_phase_neutral_b': 0,
+                        'tension_phase_neutral_c': 0,
+                        'current_a': 0,
+                        'current_b': 0,
+                        'current_c': 0,
+                        'thd_tension_a': 0,
+                        'thd_tension_b': 0,
+                        'thd_tension_c': 0,
+                        'thd_current_a': 0,
+                        'thd_current_b': 0,
+                        'thd_current_c': 0,
+                        'power_active': 0,
+                        'power_reactive': 0,
+                        'consolidation_count': 0
+                    })
+
+                if len(registers) == 200:
+                    send_registers(registers)
+                    registers.clear()
+
+            send_registers(registers)
 
 
-    else:
-        date = get_last_measurement(tag)
-        insert_data_log(date, tag)
+        else:
+            if register_last_log:
+                date = get_last_measurement(tag)
+                insert_data_log(date, tag)
+
+    except Exception as error:
+        print(error)
+        print(traceback.format_exc())
 
 
 def get_lot():
 
-    registers = []
-    tag = "AR.LGC.Numero_Lote_Processo"
-    url = "https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZw3H8BAATUVTLVBJLVBST0RcQVIuTEdDLk5VTUVST19MT1RFX1BST0NFU1NP/recorded?filterexpression=BadVal('.')=0&startTime=-1h"
-    res = requests.get(url, verify=False, auth=HTTPBasicAuth(user, password))
+    global date_param
 
     try:
-        body = json.loads(res.text)
-        if 'Items' in body.keys():
-            data = body['Items']
+
+        if date_param == '-5m':
+            lot_param = '-4h'
+        else:
+            date = date_param.split('-')
+            
+            if len(date) == 1:
+                lot_param = date+' '+'-4h'
+            else:
+                interval = date[1]
+                date = date[0]
+
+                if 'd' in interval and 'h' in interval and 'm' in interval:
+                    tmp = interval.split('+')
+                    hour = int(tmp[1].replace('h', '')) + 4
+                    hour = '+'+str(hour)+'h'
+                    lot_param = date+' '+'-'+tmp[0]+hour+'+'+tmp[-1]
+
+                elif 'd' in interval and 'h' in interval:
+                    tmp = interval.split('+')
+                    hour = int(tmp[1].replace('h', '')) + 4
+                    hour = '+'+str(hour)+'h'
+                    lot_param = date+' '+'-'+tmp[0]+hour
+
+                elif 'h' in interval and 'm' in interval:
+                    tmp = interval.split('+')
+                    hour = tmp[0].replace('h', '')
+                    hour = int(hour.replace('-', ''))+4
+                    hour = '-'+str(hour)+'h'
+                    lot_param = date+' '+hour+'+'+tmp[1]
+
+                elif 'd' in interval and 'm' in interval:
+                    tmp = interval.split('+')
+                    hour = '+4h'
+                    lot_param = date+' '+'-'+tmp[0]+hour+'+'+tmp[1]
+
+                elif 'd' in interval:
+                    lot_param = date+' '+'-'+interval+'+4h'
+
+                elif 'h' in interval:
+                    tmp = interval.replace('h', '')
+                    tmp = tmp.replace('-', '')
+                    hour = int(tmp) + 4
+                    lot_param = date+' '+'-'+str(hour)+'h'
+
+                else:
+                    hour = '-4h'
+                    interval = interval.replace('-', '+')
+                    lot_param = date+' '+hour+interval
+
+
+
+        registers = []
+
+        tag = "AR.LGC.Numero_Lote_Processo"
+        url = f"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZw3H8BAATUVTLVBJLVBST0RcQVIuTEdDLk5VTUVST19MT1RFX1BST0NFU1NP/recorded?filterexpression=BadVal('.')=0&startTime={lot_param}"
+        res = requests.get(url, verify=False, auth=HTTPBasicAuth(user, password))
+
+        try:
+            body = json.loads(res.text)
+            if 'Items' in body.keys():
+                data = body['Items']
+                if data is not None:
+                    print(f'Registros recuperados: {len(data)}')
+        except Exception as error:
+            print(error)
+            print(traceback.format_exc())
+
+        if len(data) != 0:
+
+            date = set_date(data[0]['Timestamp'])
+            update_data_log(date, tag)
+        
+            for d in data:
+                register = set_data(d, tag)
+                if len(register) > 0:
+                    registers.append(register)
+
+            return registers
+
+        else:
+            date = get_last_filters(tag)
+            insert_data_log(date, tag)
+            return []
+
     except Exception as error:
         print(error)
-
-    if len(data) != 0:
-
-        date = set_date(data[0]['Timestamp'])
-        update_data_log(date, tag)
-    
-        for d in data:
-            register = set_data(d, tag)
-            if len(register) > 0:
-                registers.append(register)
-
-        return registers
-
-    else:
-        date = get_last_filters(tag)
-        insert_data_log(date, tag)
-        return []
-
+        print(traceback.format_exc())
 
 
 def get_cycle():
 
-    registers = []
-    tag = "AR.LGC.Ciclo_Lote_Processo"
-    url = "https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwIIoBAATUVTLVBJLVBST0RcQVIuTEdDLkNJQ0xPX0xPVEVfUFJPQ0VTU08/recorded?filterexpression=BadVal('.')=0&startTime=-1h"
-    res = requests.get(url, verify=False, auth=HTTPBasicAuth(user, password))
+    global date_param
 
     try:
-        body = json.loads(res.text)
-        if 'Items' in body.keys():
-            data = body['Items']
+
+        if date_param == '-5m':
+            cycle_param = '-4h'
+        else:
+            date = date_param.split('-')
+            
+            if len(date) == 1:
+                cycle_param = date+' '+'-4h'
+            else:
+                interval = date[1]
+                date = date[0]
+
+                if 'd' in interval and 'h' in interval and 'm' in interval:
+                    tmp = interval.split('+')
+                    hour = int(tmp[1].replace('h', '')) + 4
+                    hour = '+'+str(hour)+'h'
+                    cycle_param = date+' '+'-'+tmp[0]+hour+'+'+tmp[-1]
+
+                elif 'd' in interval and 'h' in interval:
+                    tmp = interval.split('+')
+                    hour = int(tmp[1].replace('h', '')) + 4
+                    hour = '+'+str(hour)+'h'
+                    cycle_param = date+' '+'-'+tmp[0]+hour
+
+                elif 'h' in interval and 'm' in interval:
+                    tmp = interval.split('+')
+                    hour = tmp[0].replace('h', '')
+                    hour = int(hour.replace('-', ''))+4
+                    hour = '-'+str(hour)+'h'
+                    cycle_param = date+' '+hour+'+'+tmp[1]
+
+                elif 'd' in interval and 'm' in interval:
+                    tmp = interval.split('+')
+                    hour = '+4h'
+                    cycle_param = date+' '+'-'+tmp[0]+hour+'+'+tmp[1]
+
+                elif 'd' in interval:
+                    cycle_param = date+' '+'-'+interval+'+4h'
+
+                elif 'h' in interval:
+                    tmp = interval.replace('h', '')
+                    tmp = tmp.replace('-', '')
+                    hour = int(tmp) + 4
+                    cycle_param = date+' '+'-'+str(hour)+'h'
+
+                else:
+                    hour = '-4h'
+                    interval = interval.replace('-', '+')
+                    cycle_param = date+' '+hour+interval
+
+        registers = []
+        tag = "AR.LGC.Ciclo_Lote_Processo"
+        url = f"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwIIoBAATUVTLVBJLVBST0RcQVIuTEdDLkNJQ0xPX0xPVEVfUFJPQ0VTU08/recorded?filterexpression=BadVal('.')=0&startTime={cycle_param}"
+        res = requests.get(url, verify=False, auth=HTTPBasicAuth(user, password))
+
+        try:
+            body = json.loads(res.text)
+            if 'Items' in body.keys():
+                data = body['Items']
+                if data is not None:
+                    print(f'Registros recuperados: {len(data)}')
+        except Exception as error:
+            print(error) 
+        
+        if len(data) != 0:
+
+            date = set_date(data[0]['Timestamp'])
+            update_data_log(date, tag)
+        
+            for d in data:
+                register = set_data(d, tag)
+                if len(register) > 0:
+                    registers.append(register)
+
+            return registers
+
+        else:
+            date = get_last_filters(tag)
+            insert_data_log(date, tag)
+
     except Exception as error:
-        print(error) 
-    
-    if len(data) != 0:
-
-        date = set_date(data[0]['Timestamp'])
-        update_data_log(date, tag)
-    
-        for d in data:
-            register = set_data(d, tag)
-            if len(register) > 0:
-                registers.append(register)
-
-        return registers
-
-    else:
-        date = get_last_filters(tag)
-        insert_data_log(date, tag)
-
+        print(error)
+        print(traceback.format_exc())
 
 
 def set_data(data, tag):
 
     register = {}
 
-    if len(data['Value']) < 11:
-        datetime_read = set_date(data['Timestamp'])
-        register['capture_id'] = tag
-        register['datetime_read'] = datetime_read
-        register['f_value'] = data['Value']
+    try:
 
-    return register
+        if len(data['Value']) < 11:
+            datetime_read = set_date(data['Timestamp'])
+            register['capture_id'] = tag
+            register['datetime_read'] = datetime_read
+            register['f_value'] = data['Value']
+
+        return register
+
+    except Exception as error:
+        print(error)
+        print(traceback.format_exc())
 
 
 def send_registers(data):
 
-    headers = {
-        'Content-type': 'application/json',
-        'Accept': 'text/plain', 
-        'x-api-key': '0VmpVLnf7e6E6wZMNS235aPI2N3TOeko24ozYM0h'
-    }
+    try:
 
-    API_ENDPOINT = 'https://cr4ggvm03k.execute-api.us-east-2.amazonaws.com/producao/csn'
+        headers = {
+            'Content-type': 'application/json',
+            'Accept': 'text/plain', 
+            'x-api-key': '0VmpVLnf7e6E6wZMNS235aPI2N3TOeko24ozYM0h'
+        }
 
-    registers = json.dumps(data, indent=2)
+        API_ENDPOINT = 'https://cr4ggvm03k.execute-api.us-east-2.amazonaws.com/producao/csn'
 
-    response = requests.post(API_ENDPOINT, data=registers, headers=headers)
+        registers = json.dumps(data)
+
+        response = requests.post(API_ENDPOINT, data=registers, headers=headers)
+
+    except Exception as error:
+        print(error)
+        print(traceback.format_exc())
 
 
 def insert_data_log(date, tag):
 
-    data = (date, tag)
-
-    conn = None
-    sql = """
-            INSERT INTO online_data_log (datetime_without, id_capture)
-                VALUES (%s, %s)
-            ON CONFLICT ON CONSTRAINT date_capture_uniq
-            DO NOTHING;
-    """
-
     try:
-        conn = connect()
-        cur = conn.cursor()
-        cur.execute(sql, data)
-        cur.close()
-        conn.commit()    
+
+        data = (date, tag)
+
+        conn = None
+        sql = """
+                INSERT INTO online_data_log (datetime_last, id_capture)
+                    VALUES (%s, %s)
+                ON CONFLICT ON CONSTRAINT date_capture_uniq
+                DO NOTHING;
+        """
+
+        try:
+            conn = connect()
+            cur = conn.cursor()
+            cur.execute(sql, data)
+            cur.close()
+            conn.commit()    
+        except Exception as error:
+            print(error)
+        finally:
+            if conn is not None:
+                conn.close()
+
     except Exception as error:
         print(error)
-    finally:
-        if conn is not None:
-            conn.close()
+        print(traceback.format_exc())
 
 
 def update_data_log(date, tag):
@@ -463,8 +588,8 @@ def update_data_log(date, tag):
     conn = None
     sql = """
         UPDATE online_data_log
-            SET datetime_with=%s
-            WHERE id_capture=%s and datetime_with IS NULL;
+            SET datetime_return=%s
+            WHERE id_capture=%s and datetime_return IS NULL;
     """
 
     try:
@@ -476,6 +601,7 @@ def update_data_log(date, tag):
         conn.commit()    
     except Exception as error:
         print(error)
+        print(traceback.format_exc())
     finally:
         if conn is not None:
             conn.close()
@@ -506,6 +632,7 @@ def get_last_processes(tag):
         cur.close()
     except Exception as error:
         print(error)
+        print(traceback.format_exc())
     finally:
         if conn is not None:
             conn.close()
@@ -536,6 +663,7 @@ def get_last_measurement(tag):
         cur.close()
     except Exception as error:
         print(error)
+        print(traceback.format_exc())
     finally:
         if conn is not None:
             conn.close()
@@ -544,29 +672,31 @@ def get_last_measurement(tag):
 
 def get_last_filters(tag):
 
-    map_tag = {
-        'AR.LGC.Largura_Lote_Processo':'width',
-        'AR.LGC.REVESTIMENTO_INFERIOR':'inf_coating',
-        'AR.LGC.REVESTIMENTO_SUPERIOR':'sup_coating',
-        'AR.LGC.Numero_Lote_Processo':'lot',
-        'AR.LGC.Ciclo_Lote_Processo':'cycle_re',
-        'AR.LGC.ESPESSURA':'thickness'
-    }
-
-    column = map_tag[tag]
-
-    conn = None
-    data = None
-    sql = f"""
-        SELECT 
-        datetime_read
-        FROM filter_processes 
-        WHERE {column} IS NOT NULL
-        ORDER BY 1 DESC
-        LIMIT 1 
-    """
-
     try:
+
+        map_tag = {
+            'AR.LGC.Largura_Lote_Processo':'width',
+            'AR.LGC.REVESTIMENTO_INFERIOR':'inf_coating',
+            'AR.LGC.REVESTIMENTO_SUPERIOR':'sup_coating',
+            'AR.LGC.Numero_Lote_Processo':'lot',
+            'AR.LGC.Ciclo_Lote_Processo':'cycle_re',
+            'AR.LGC.ESPESSURA':'thickness'
+        }
+
+        column = map_tag[tag]
+
+        conn = None
+        data = None
+        sql = f"""
+            SELECT 
+            datetime_read
+            FROM filter_processes 
+            WHERE {column} IS NOT NULL
+            ORDER BY 1 DESC
+            LIMIT 1 
+        """
+
+        
         conn = connect()
         cur = conn.cursor()
         cur.execute(sql)
@@ -574,6 +704,7 @@ def get_last_filters(tag):
         cur.close()
     except Exception as error:
         print(error)
+        print(traceback.format_exc())
     finally:
         if conn is not None:
             conn.close()
@@ -581,107 +712,128 @@ def get_last_filters(tag):
 
 def change_date_format(date):
 
-    if 'T' in date:
-        tmp = date.split('T')[0]
-        tmp = tmp.split('-')
-        time = date.split('T')[1]
+    try:
 
-        year = tmp[0]
-        month = tmp[1]
-        day = tmp[2]
-        pi_format = month+'/'+day+'/'+year+' '+time
+        if 'T' in date:
+            tmp = date.split('T')[0]
+            tmp = tmp.split('-')
+            time = date.split('T')[1]
 
-        return pi_format
+            year = tmp[0]
+            month = tmp[1]
+            day = tmp[2]
+            pi_format = month+'/'+day+'/'+year+' '+time
 
-    else:
-        tmp = date.split('-')
-        year = tmp[0]
-        month = tmp[1]
-        day = tmp[2]
-        pi_format = month+'/'+day+'/'+year
+            return pi_format
 
-        return pi_format
+        else:
+            tmp = date.split('-')
+            year = tmp[0]
+            month = tmp[1]
+            day = tmp[2]
+            pi_format = month+'/'+day+'/'+year
+
+            return pi_format
+
+    except Exception as error:
+        print(error)
+        print(traceback.format_exc())
 
 
 def cal_interval(date_1, date_2):
 
-    if 'T' in date_1 and 'T' in date_2:
-        date_from = datetime.strptime(date_1, '%Y-%m-%dT%H:%M')
-        date_to = datetime.strptime(date_2, '%Y-%m-%dT%H:%M')
-        interval = date_to - date_from
+    try:
 
-        return interval
+        if 'T' in date_1 and 'T' in date_2:
+            date_from = datetime.strptime(date_1, '%Y-%m-%dT%H:%M')
+            date_to = datetime.strptime(date_2, '%Y-%m-%dT%H:%M')
+            interval = date_to - date_from
 
-    elif 'T' in date_1 and 'T' not in date_2:
-        date_from = datetime.strptime(date_1, '%Y-%m-%dT%H:%M')
-        date_to = datetime.strptime(date_2, '%Y-%m-%d')
-        interval = date_to - date_from
+            return interval
 
-        return interval
+        elif 'T' in date_1 and 'T' not in date_2:
+            date_from = datetime.strptime(date_1, '%Y-%m-%dT%H:%M')
+            date_to = datetime.strptime(date_2, '%Y-%m-%d')
+            interval = date_to - date_from
 
-    elif 'T' not in date_1 and 'T' in date_2:
-        date_from = datetime.strptime(date_1, '%Y-%m-%d')
-        date_to = datetime.strptime(date_2, '%Y-%m-%dT%H:%M')
-        interval = date_to - date_from
+            return interval
 
-        return interval
+        elif 'T' not in date_1 and 'T' in date_2:
+            date_from = datetime.strptime(date_1, '%Y-%m-%d')
+            date_to = datetime.strptime(date_2, '%Y-%m-%dT%H:%M')
+            interval = date_to - date_from
 
-    else:
-        date_from = datetime.strptime(date_1, '%Y-%m-%d')
-        date_to = datetime.strptime(date_2, '%Y-%m-%d')
-        interval = date_to - date_from
+            return interval
 
-        return interval
+        else:
+            date_from = datetime.strptime(date_1, '%Y-%m-%d')
+            date_to = datetime.strptime(date_2, '%Y-%m-%d')
+            interval = date_to - date_from
+
+            return interval
+
+    except Exception as error:
+        print(error)
+        print(traceback.format_exc())
 
 
 def set_interval(interval):
 
-    days = interval.days
-    seconds = interval.seconds
-    hours = seconds // 3600
-    tmp = seconds % 3600
-    minutes = tmp // 60
+    try:
 
-    day = str(days)
-    hour = str(hours)
-    minute = str(minutes)
+        days = interval.days
+        seconds = interval.seconds
+        hours = seconds // 3600
+        tmp = seconds % 3600
+        minutes = tmp // 60
 
-    if days != 0 and hours != 0 and minutes != 0:
-        interval_format = '-'+day+'d+'+hour+'h+'+minute+'m'
-        return interval_format
-    elif days != 0 and hours != 0:
-        interval_format = '-'+day+'d+'+hour+'h'
-        return interval_format
-    elif days != 0 and minutes != 0:
-        interval_format = '-'+day+'d+'+minute+'m'
-        return interval_format
-    elif hours != 0 and minutes != 0:
-        interval_format = '-'+hour+'h+'+minute+'m'
-        return interval_format
-    elif days != 0:
-        interval_format = '-'+day+'d'
-        return interval_format
-    elif hours != 0:
-        interval_format = '-'+hour+'h'
-        return interval_format
-    else:
-        interval_format = '-'+minute+'m'
-        return interval_format   
+        day = str(days)
+        hour = str(hours)
+        minute = str(minutes)
 
+        if days != 0 and hours != 0 and minutes != 0:
+            interval_format = '-'+day+'d+'+hour+'h+'+minute+'m'
+            return interval_format
+        elif days != 0 and hours != 0:
+            interval_format = '-'+day+'d+'+hour+'h'
+            return interval_format
+        elif days != 0 and minutes != 0:
+            interval_format = '-'+day+'d+'+minute+'m'
+            return interval_format
+        elif hours != 0 and minutes != 0:
+            interval_format = '-'+hour+'h+'+minute+'m'
+            return interval_format
+        elif days != 0:
+            interval_format = '-'+day+'d'
+            return interval_format
+        elif hours != 0:
+            interval_format = '-'+hour+'h'
+            return interval_format
+        else:
+            interval_format = '-'+minute+'m'
+            return interval_format   
+
+    except Exception as error:
+        print(error)
+        print(traceback.format_exc())
 
 
 if __name__ == '__main__':
 
     args = sys.argv
 
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+    register_last_log = True
     if len(args) == 1:
         date_param = '-5m'
 
     elif len(args) == 2:
+        register_last_log = False
         date = args[1]
         date_param = change_date_format(date)
 
     else:
+        register_last_log = False
         date_1 = args[1]
         date_2 = args[2]
         interval = cal_interval(date_1, date_2)
@@ -730,6 +882,7 @@ if __name__ == '__main__':
     filters = ['AR.LGC.ESPESSURA', 'AR.LGC.REVESTIMENTO_INFERIOR', 'AR.LGC.REVESTIMENTO_SUPERIOR']
 
     for t in tags:
+        print(f'\nProcessando tag: {t}\t{datetime.now().isoformat()}\n')
         url = tags[t]
         if t == 'AR.LGC.ELETRICIDADE_LGC':
             if len(args) == 1:
@@ -747,6 +900,8 @@ if __name__ == '__main__':
             body = json.loads(res.text)
             if 'Items' in body.keys():
                 data = body['Items']
+                if data is not None:
+                    print(f'Registros recuperados: {len(data)}')
 
                 if t == 'AR.LGC.ELETRICIDADE_LGC':
                     set_measurement(data, t)
@@ -755,7 +910,8 @@ if __name__ == '__main__':
                 else:
                     set_processes(data, t)
         except Exception as error:
-            print(error) 
+            print(error)
+            print(traceback.format_exc())
              
         
         
