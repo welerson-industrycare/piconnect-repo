@@ -847,10 +847,17 @@ if __name__ == '__main__':
                     res = paginate_pi_call(date_1, date_2, url) 
 
             elif t in filters:
+                if (new_date - current_date).total_seconds() < 2400:
+                    date_3 = (new_date - timedelta(minutes=40)).strftime('%Y-%m-%dT%H:%M')
+                
+                else:
+                    date_3 = date_1
+
+
                 if t == 'AR.LGC.Ciclo_Lote_Processo':
-                    res = paginate_pi_call(date_1, date_2, url,60)
+                    res = paginate_pi_call(date_3, date_2, url,60)
                 else:    
-                    res = paginate_pi_call(date_1, date_2, url,1800)
+                    res = paginate_pi_call(date_3, date_2, url,1800)
 
             else:
                 res = paginate_pi_call(date_1, date_2, url)
