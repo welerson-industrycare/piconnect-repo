@@ -852,7 +852,7 @@ if __name__ == '__main__':
 
             elif t in filters:
                 if (new_date - current_date).total_seconds() < 2400:
-                    date_3 = (new_date - timedelta(minutes=40)).strftime('%Y-%m-%dT%H:%M')
+                    date_3 = (new_date - timedelta(minutes=80)).strftime('%Y-%m-%dT%H:%M')
                 
                 else:
                     date_3 = date_1
