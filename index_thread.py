@@ -737,7 +737,9 @@ if __name__ == '__main__':
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
     
     if len(args) == 1:
-        date_to = datetime.now()
+        timezone_str = 'America/Fortaleza'
+        timezone = pytz.timezone(timezone_str)
+        date_to = datetime.now(timezone)
         date_from = date_to - timedelta(minutes=5)
 
         date_1 = date_from.strftime('%Y-%m-%dT%H:%M')
@@ -827,7 +829,9 @@ if __name__ == '__main__':
         print(f'Extraindo dados do intervalo:{date_1} -- {date_2}')
 
         for t in tags:
-            print(f'\nProcessando tag: {t}\t{datetime.now().isoformat()}\n')
+            timezone_str = 'America/Fortaleza'
+            timezone = pytz.timezone(timezone_str)
+            print(f'\nProcessando tag: {t}\t{datetime.now(timezone).isoformat()}\n')
             url = tags[t]
             if t == 'AR.LGC.ELETRICIDADE_LGC':
                                   
