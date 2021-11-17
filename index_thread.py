@@ -147,13 +147,14 @@ def set_processes_filters(data, tag):
 
     try:
         if data: 
+            global date_2
             date_from = datetime.strptime(set_date(data[0]['Timestamp'])[0:19], '%Y-%m-%dT%H:%M:%S')
-            date_to = datetime.strptime(set_date(data[-1]['Timestamp'])[0:19], '%Y-%m-%dT%H:%M:%S')
+            date_to = datetime.strptime(date_2, '%Y-%m-%dT%H:%M')
             current_date = date_from
             current_value = data[0]['Value']
             index = 1
             while(current_date < date_to):
-                if datetime.strptime(set_date(data[index]['Timestamp'])[0:19], '%Y-%m-%dT%H:%M:%S') <= current_date:
+                if index != len(data) and datetime.strptime(set_date(data[index]['Timestamp'])[0:19], '%Y-%m-%dT%H:%M:%S') <= current_date:
                     current_value = data[index]['Value']
                     index += 1
                     
@@ -630,11 +631,8 @@ def set_interval(interval):
 
 def paginate_pi_call(start, end_date, url, second_size=5):
 
-    # user = os.environ['USER']
-    # password = os.environ['PASSWORD']
-
-    user = 'CSNCARE_PI'
-    password = 'Nsd#sf23V4*kF'
+    user = os.environ['USER']
+    password = os.environ['PASSWORD']
 
     try:
 
