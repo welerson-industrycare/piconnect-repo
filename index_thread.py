@@ -139,6 +139,53 @@ def set_processes(data, tag):
         print(traceback.format_exc())
 
 
+def set_filled_data(data, tag):
+
+    registers = []
+    array_threads = []
+
+    try:
+        if data: 
+            global date_2
+            date_from = datetime.strptime(set_date(data[0]['Timestamp'])[0:19], '%Y-%m-%dT%H:%M:%S')
+            date_to = datetime.strptime(date_2, '%Y-%m-%dT%H:%M')
+            current_date = date_from
+            current_value = data[0]['Value']
+            index = 1
+            while(current_date < date_to):
+                if index != len(data) and datetime.strptime(set_date(data[index]['Timestamp'])[0:19], '%Y-%m-%dT%H:%M:%S') <= current_date:
+                    current_value = data[index]['Value']
+                    index += 1
+                    
+                print(f'Enviando dados: {current_date}', end='\r')  
+                registers.append({
+                    'capture_id':tag,
+                    'datetime_read':current_date.strftime('%Y-%m-%dT%H:%M:%S-03:00'),
+                    'p_value':str(current_value)
+                })
+                
+                current_date = current_date + timedelta(seconds=5)
+
+
+
+                if len(registers) == 50:
+                    current = threading.Thread(target=send_registers, args=(registers.copy(),))
+                    array_threads.append(current)
+                    current.start()
+                    registers.clear()
+
+            if len(registers) > 0:
+                current = threading.Thread(target=send_registers, args=(registers.copy(),))   
+                array_threads.append(current)
+                current.start()
+
+            for a in array_threads:
+                a.join()
+
+    except Exception as error:
+        print(error)
+        print(traceback.format_exc())
+
 
 def set_processes_filters(data, tag):
 
@@ -812,6 +859,8 @@ if __name__ == '__main__':
 
     filters = ['AR.LGC.ESPESSURA', 'AR.LGC.REVESTIMENTO_INFERIOR', 'AR.LGC.REVESTIMENTO_SUPERIOR', 'AR.LGC.Largura_Lote_Processo', 'AR.LGC.Numero_Lote_Processo', 'AR.LGC.Ciclo_Lote_Processo']
 
+    filled_data = ['AR.LGC.Velocidade_Processo', 'AR.LGC.ZONA3_DFF_ON', 'AR.LGC.ZONA2_DFF_ON', 'AR.LGC.ZONA1_DFF_ON']
+
     
     current_date = datetime.strptime(date_1, '%Y-%m-%dT%H:%M')
     date_to = datetime.strptime(date_2, '%Y-%m-%dT%H:%M')
@@ -850,16 +899,25 @@ if __name__ == '__main__':
 
             elif t in filters:
                 if (new_date - current_date).total_seconds() < 2400:
-                    date_3 = (new_date - timedelta(minutes=80)).strftime('%Y-%m-%dT%H:%M')
-                
+                    if t == 'AR.LGC.Ciclo_Lote_Processo':
+                        date_3 = (new_date - timedelta(hours=8)).strftime('%Y-%m-%dT%H:%M')
+                    else:
+                        date_3 = (new_date - timedelta(minutes=80)).strftime('%Y-%m-%dT%H:%M')
                 else:
                     date_3 = date_1
 
 
                 if t == 'AR.LGC.Ciclo_Lote_Processo':
-                    res = paginate_pi_call(date_3, date_2, url,60)
+                    res = paginate_pi_call(date_3, date_2, url,28800)
                 else:    
                     res = paginate_pi_call(date_3, date_2, url,1800)
+
+            elif t in filled_data:
+                if (new_date - current_date).total_seconds() < 2400:
+                    date_3 = (new_date - timedelta(minutes=80)).strftime('%Y-%m-%dT%H:%M')
+                else:
+                    date_3 = date_1
+                res = paginate_pi_call(date_3, date_2, url,3600)  
 
             else:
                 res = paginate_pi_call(date_1, date_2, url)
@@ -873,6 +931,8 @@ if __name__ == '__main__':
                         set_measurement(res, t)
                     elif t in filters:
                         set_processes_filters(res, t)
+                    elif t in filled_data:
+                        set_filled_data(res, t)
                     else:
                         set_processes(res, t)
             except Exception as error:
