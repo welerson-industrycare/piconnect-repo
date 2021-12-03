@@ -199,19 +199,43 @@ def set_processes_filters(data, tag):
             date_to = datetime.strptime(date_2, '%Y-%m-%dT%H:%M')
             current_date = date_from
             current_value = data[0]['Value']
+            if tag == 'AR.LGC.ESPESSURA':
+                current_value = round(current_value*1000, 2)
+            if tag == 'AR.LGC.Largura_Lote_Processo':
+                current_value = round(current_value*1000)
+            if tag in ['AR.LGC.REVESTIMENTO_INFERIOR', 'AR.LGC.REVESTIMENTO_SUPERIOR']:
+                current_value = round(current_value)
+
             index = 1
             while(current_date < date_to):
                 if index != len(data) and datetime.strptime(set_date(data[index]['Timestamp'])[0:19], '%Y-%m-%dT%H:%M:%S') <= current_date:
                     current_value = data[index]['Value']
+                    if tag == 'AR.LGC.ESPESSURA':
+                        current_value = round(current_value*1000, 2)
+                    if tag == 'AR.LGC.Largura_Lote_Processo':
+                        current_value = round(current_value*1000)
+                    if tag in ['AR.LGC.REVESTIMENTO_INFERIOR', 'AR.LGC.REVESTIMENTO_SUPERIOR']:
+                        current_value = round(current_value)
+
                     index += 1
-                    
-                print(f'Enviando dados: {current_date}', end='\r')  
-                registers.append({
-                    'capture_id':tag,
-                    'datetime_read':current_date.strftime('%Y-%m-%dT%H:%M:%S-03:00'),
-                    'f_value':str(current_value)
-                })
                 
+                if tag == 'AR.LGC.Numero_Lote_Processo':
+                    if len(current_value) == 10:
+                        print(f'Enviando dados: {current_date}', end='\r')  
+                        registers.append({
+                            'capture_id':tag,
+                            'datetime_read':current_date.strftime('%Y-%m-%dT%H:%M:%S-03:00'),
+                            'f_value':str(current_value)
+                        })
+
+                else:
+                    print(f'Enviando dados: {current_date}', end='\r')  
+                    registers.append({
+                        'capture_id':tag,
+                        'datetime_read':current_date.strftime('%Y-%m-%dT%H:%M:%S-03:00'),
+                        'f_value':str(current_value)
+                    })
+                    
                 current_date = current_date + timedelta(seconds=5)
 
 
@@ -268,9 +292,6 @@ def set_measurement(data, tag):
                     'datetime_read': next_interval.strftime('%Y-%m-%dT%H:%M:%S-03:00'),
                     'value_active': value_active,
                     'value_reactive': float(0.0000001),
-                    # 'consumption': float(0.0),
-                    # 'period': float(0.0),
-                    # 'is_point': True,
                     'tension_phase_neutral_a': float(0.0000001),
                     'tension_phase_neutral_b': float(0.0000001),
                     'tension_phase_neutral_c': float(0.0000001),
@@ -283,9 +304,6 @@ def set_measurement(data, tag):
                     'thd_current_a': float(0.0000001),
                     'thd_current_b': float(0.0000001),
                     'thd_current_c': float(0.0000001),
-                    # 'power_active': float(0.0000001),
-                    # 'power_reactive': float(0.0000001),
-                    # 'consolidation_count': float(0.0000001)
                     })
 
                 current_date = next_interval
@@ -465,108 +483,6 @@ def update_data_log(date, tag):
             conn.close()
             return row
 
-
-
-def get_last_processes(tag):
-
-    conn = None
-    data = None
-    arg = {'id_capture':tag}
-    sql = f"""
-        SELECT 
-        p.datetime_read
-        FROM processes p
-        LEFT JOIN plant_equipment e ON e.plant_equipment_id = p.plant_equipment_id
-        WHERE e.id_capture = %(id_capture)s
-        ORDER BY 1 DESC
-        LIMIT 1  
-    """
-
-    try:
-        conn = connect()
-        cur = conn.cursor()
-        cur.execute(sql, arg)
-        data = cur.fetchone()
-        cur.close()
-    except Exception as error:
-        print(error)
-        print(traceback.format_exc())
-    finally:
-        if conn is not None:
-            conn.close()
-            return data
-
-
-
-def get_last_measurement(tag):
-
-    conn = None
-    data = None
-    arg = {'id_capture':tag}
-    sql = f"""
-        SELECT 
-        m.datetime_read
-        FROM measurement m
-        LEFT JOIN plant_equipment e ON e.plant_equipment_id = m.plant_equipment_id
-        WHERE e.id_capture = %(id_capture)s
-        ORDER BY 1 DESC
-        LIMIT 1  
-    """
-
-    try:
-        conn = connect()
-        cur = conn.cursor()
-        cur.execute(sql, arg)
-        data = cur.fetchone()
-        cur.close()
-    except Exception as error:
-        print(error)
-        print(traceback.format_exc())
-    finally:
-        if conn is not None:
-            conn.close()
-            return data
-
-
-def get_last_filters(tag):
-
-    try:
-
-        map_tag = {
-            'AR.LGC.Largura_Lote_Processo':'width',
-            'AR.LGC.REVESTIMENTO_INFERIOR':'inf_coating',
-            'AR.LGC.REVESTIMENTO_SUPERIOR':'sup_coating',
-            'AR.LGC.Numero_Lote_Processo':'lot',
-            'AR.LGC.Ciclo_Lote_Processo':'cycle_re',
-            'AR.LGC.ESPESSURA':'thickness'
-        }
-
-        column = map_tag[tag]
-
-        conn = None
-        data = None
-        sql = f"""
-            SELECT 
-            datetime_read
-            FROM filter_processes 
-            WHERE {column} IS NOT NULL
-            ORDER BY 1 DESC
-            LIMIT 1 
-        """
-
-        
-        conn = connect()
-        cur = conn.cursor()
-        cur.execute(sql)
-        data = cur.fetchone()
-        cur.close()
-    except Exception as error:
-        print(error)
-        print(traceback.format_exc())
-    finally:
-        if conn is not None:
-            conn.close()
-            return data
 
 def change_date_format(date):
 
@@ -821,38 +737,52 @@ if __name__ == '__main__':
 
 
     tags = {
-        "AR.LGC.Temperatura_Tira_RTS":f"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwqX8BAATUVTLVBJLVBST0RcQVIuTEdDLlRFTVBFUkFUVVJBX1RJUkFfUlRT/recorded?filterexpression=BadVal('.')=0&startTime=",
-        "AR.LGC.Velocidade_Processo":f"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwmn8BAATUVTLVBJLVBST0RcQVIuTEdDLlZFTE9DSURBREVfUFJPQ0VTU08/recorded?filterexpression=BadVal('.')=0&startTime=",
-        "AR.LGC.Temperatura_Tira_RTH":f"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwqH8BAATUVTLVBJLVBST0RcQVIuTEdDLlRFTVBFUkFUVVJBX1RJUkFfUlRI/recorded?filterexpression=BadVal('.')=0&startTime=",
-        "AR.LGC.REVESTIMENTO_INFERIOR":f"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwg_EBAATUVTLVBJLVBST0RcQVIuTEdDLlJFVkVTVElNRU5UT19JTkZFUklPUg/recorded?filterexpression=BadVal('.')=0&startTime=",
-        "AR.LGC.Concentracao_H2":f"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwsX8BAATUVTLVBJLVBST0RcQVIuTEdDLkNPTkNFTlRSQUNBT19IMg/recorded?filterexpression=BadVal('.')=0&startTime=",
-        "AR.LGC.Temperatura_Tira_JCS":f"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwq38BAATUVTLVBJLVBST0RcQVIuTEdDLlRFTVBFUkFUVVJBX1RJUkFfSkNT/recorded?filterexpression=BadVal('.')=0&startTime=",
-        "AR.LGC.VAZAO_N2_FORNO":f"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwi_EBAATUVTLVBJLVBST0RcQVIuTEdDLlZBWkFPX04yX0ZPUk5P/recorded?filterexpression=BadVal('.')=0&startTime=",
-        "AR.LGC.VAZAO_GN_FORNO":f"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwjPEBAATUVTLVBJLVBST0RcQVIuTEdDLlZBWkFPX0dOX0ZPUk5P/recorded?filterexpression=BadVal('.')=0&startTime=",
-        "AR.LGC.Temperatura_Tira_DFF":f"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwp38BAATUVTLVBJLVBST0RcQVIuTEdDLlRFTVBFUkFUVVJBX1RJUkFfREZG/recorded?filterexpression=BadVal('.')=0&startTime=",
-        "AR.LGC.Temperatura_Tira_SCS":f"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwqn8BAATUVTLVBJLVBST0RcQVIuTEdDLlRFTVBFUkFUVVJBX1RJUkFfU0NT/recorded?filterexpression=BadVal('.')=0&startTime=",
-        "AR.LGC.ESPESSURA":f"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwgfEBAATUVTLVBJLVBST0RcQVIuTEdDLkVTUEVTU1VSQQ/recorded?filterexpression=BadVal('.')=0&startTime=",
-        "AR.LGC.VAZAO_H2_FORNO":f"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwivEBAATUVTLVBJLVBST0RcQVIuTEdDLlZBWkFPX0gyX0ZPUk5P/recorded?filterexpression=BadVal('.')=0&startTime=",
-        "AR.LGC.PRESSAO_RADIANTE":f"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwhfEBAATUVTLVBJLVBST0RcQVIuTEdDLlBSRVNTQU9fUkFESUFOVEU/recorded?filterexpression=BadVal('.')=0&startTime=",
-        "AR.LGC.Producao_Atual":f"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwnH8BAATUVTLVBJLVBST0RcQVIuTEdDLlBST0RVQ0FPX0FUVUFM/recorded?filterexpression=BadVal('.')=0&startTime=",
-        "AR.LGC.HNX_SETPOINT_SP":f"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwkvEBAATUVTLVBJLVBST0RcQVIuTEdDLkhOWF9TRVRQT0lOVF9TUA/recorded?filterexpression=BadVal('.')=0&startTime=",
-        "AR.LGC.DAMPER_INFERIOR_PV":f"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwifEBAATUVTLVBJLVBST0RcQVIuTEdDLkRBTVBFUl9JTkZFUklPUl9QVg/recorded?filterexpression=BadVal('.')=0&startTime=",
-        "AR.LGC.Pressao_Forno_DFF":f"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwzn8BAATUVTLVBJLVBST0RcQVIuTEdDLlBSRVNTQU9fRk9STk9fREZG/recorded?filterexpression=BadVal('.')=0&startTime=",
-        "AR.LGC.Pressao_Snout":f"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwz38BAATUVTLVBJLVBST0RcQVIuTEdDLlBSRVNTQU9fU05PVVQ/recorded?filterexpression=BadVal('.')=0&startTime=",
-        "AR.LGC.ZONA2_DFF_ON":f"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwkPEBAATUVTLVBJLVBST0RcQVIuTEdDLlpPTkEyX0RGRl9PTg/recorded?filterexpression=BadVal('.')=0&startTime=",
-        "AR.LGC.ZONA1_DFF_ON":f"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwkfEBAATUVTLVBJLVBST0RcQVIuTEdDLlpPTkExX0RGRl9PTg/recorded?filterexpression=BadVal('.')=0&startTime=",
-        "AR.LGC.Largura_Lote_Processo":f"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZw3X8BAATUVTLVBJLVBST0RcQVIuTEdDLkxBUkdVUkFfTE9URV9QUk9DRVNTTw/recorded?filterexpression=BadVal('.')=0&startTime=",
-        "AR.LGC.Vazao_HNX":f"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwsH8BAATUVTLVBJLVBST0RcQVIuTEdDLlZBWkFPX0hOWA/recorded?filterexpression=BadVal('.')=0&startTime=",
-        "AR.LGC.DAMPER_PRINCIPAL_PV":f"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwhvEBAATUVTLVBJLVBST0RcQVIuTEdDLkRBTVBFUl9QUklOQ0lQQUxfUFY/recorded?filterexpression=BadVal('.')=0&startTime=",
-        "AR.LGC.ELETRICIDADE_LGC":f"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwk_EBAATUVTLVBJLVBST0RcQVIuTEdDLkVMRVRSSUNJREFERV9MR0M/recorded?filterexpression=BadVal('.')=0&startTime=",
-        "AR.LGC.DAMPER_PRINCIPAL_SP":f"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwh_EBAATUVTLVBJLVBST0RcQVIuTEdDLkRBTVBFUl9QUklOQ0lQQUxfU1A/recorded?filterexpression=BadVal('.')=0&startTime=",
-        "AR.LGC.REVESTIMENTO_SUPERIOR":f"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwgvEBAATUVTLVBJLVBST0RcQVIuTEdDLlJFVkVTVElNRU5UT19TVVBFUklPUg/recorded?filterexpression=BadVal('.')=0&startTime=",
-        "AR.LGC.VAZAO_GN_LGC":f"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwjfEBAATUVTLVBJLVBST0RcQVIuTEdDLlZBWkFPX0dOX0xHQw/recorded?filterexpression=BadVal('.')=0&startTime=",
-        "AR.LGC.PRESSAO_POST_COMBUSTION":f"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwhPEBAATUVTLVBJLVBST0RcQVIuTEdDLlBSRVNTQU9fUE9TVF9DT01CVVNUSU9O/recorded?filterexpression=BadVal('.')=0&startTime=",
-        "AR.LGC.DAMPER_SUPERIOR_PV":f"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwiPEBAATUVTLVBJLVBST0RcQVIuTEdDLkRBTVBFUl9TVVBFUklPUl9QVg/recorded?filterexpression=BadVal('.')=0&startTime=",
-        "AR.LGC.ZONA3_DFF_ON":f"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwj_EBAATUVTLVBJLVBST0RcQVIuTEdDLlpPTkEzX0RGRl9PTg/recorded?filterexpression=BadVal('.')=0&startTime=",
+        "AR.LGC.Temperatura_Tira_RTS":"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwqX8BAATUVTLVBJLVBST0RcQVIuTEdDLlRFTVBFUkFUVVJBX1RJUkFfUlRT/recorded?filterexpression=BadVal('.')=0&startTime=",
+        "AR.LGC.Velocidade_Processo":"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwmn8BAATUVTLVBJLVBST0RcQVIuTEdDLlZFTE9DSURBREVfUFJPQ0VTU08/recorded?filterexpression=BadVal('.')=0&startTime=",
+        "AR.LGC.Temperatura_Tira_RTH":"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwqH8BAATUVTLVBJLVBST0RcQVIuTEdDLlRFTVBFUkFUVVJBX1RJUkFfUlRI/recorded?filterexpression=BadVal('.')=0&startTime=",
+        "AR.LGC.REVESTIMENTO_INFERIOR":"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwg_EBAATUVTLVBJLVBST0RcQVIuTEdDLlJFVkVTVElNRU5UT19JTkZFUklPUg/recorded?filterexpression=BadVal('.')=0&startTime=",
+        "AR.LGC.Concentracao_H2":"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwsX8BAATUVTLVBJLVBST0RcQVIuTEdDLkNPTkNFTlRSQUNBT19IMg/recorded?filterexpression=BadVal('.')=0&startTime=",
+        "AR.LGC.Temperatura_Tira_JCS":"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwq38BAATUVTLVBJLVBST0RcQVIuTEdDLlRFTVBFUkFUVVJBX1RJUkFfSkNT/recorded?filterexpression=BadVal('.')=0&startTime=",
+        "AR.LGC.VAZAO_N2_FORNO":"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwi_EBAATUVTLVBJLVBST0RcQVIuTEdDLlZBWkFPX04yX0ZPUk5P/recorded?filterexpression=BadVal('.')=0&startTime=",
+        "AR.LGC.VAZAO_GN_FORNO":"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwjPEBAATUVTLVBJLVBST0RcQVIuTEdDLlZBWkFPX0dOX0ZPUk5P/recorded?filterexpression=BadVal('.')=0&startTime=",
+        "AR.LGC.Temperatura_Tira_DFF":"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwp38BAATUVTLVBJLVBST0RcQVIuTEdDLlRFTVBFUkFUVVJBX1RJUkFfREZG/recorded?filterexpression=BadVal('.')=0&startTime=",
+        "AR.LGC.Temperatura_Tira_SCS":"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwqn8BAATUVTLVBJLVBST0RcQVIuTEdDLlRFTVBFUkFUVVJBX1RJUkFfU0NT/recorded?filterexpression=BadVal('.')=0&startTime=",
+        "AR.LGC.ESPESSURA":"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwgfEBAATUVTLVBJLVBST0RcQVIuTEdDLkVTUEVTU1VSQQ/recorded?filterexpression=BadVal('.')=0&startTime=",
+        "AR.LGC.VAZAO_H2_FORNO":"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwivEBAATUVTLVBJLVBST0RcQVIuTEdDLlZBWkFPX0gyX0ZPUk5P/recorded?filterexpression=BadVal('.')=0&startTime=",
+        "AR.LGC.PRESSAO_RADIANTE":"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwhfEBAATUVTLVBJLVBST0RcQVIuTEdDLlBSRVNTQU9fUkFESUFOVEU/recorded?filterexpression=BadVal('.')=0&startTime=",
+        "AR.LGC.Producao_Atual":"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwnH8BAATUVTLVBJLVBST0RcQVIuTEdDLlBST0RVQ0FPX0FUVUFM/recorded?filterexpression=BadVal('.')=0&startTime=",
+        "AR.LGC.HNX_SETPOINT_SP":"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwkvEBAATUVTLVBJLVBST0RcQVIuTEdDLkhOWF9TRVRQT0lOVF9TUA/recorded?filterexpression=BadVal('.')=0&startTime=",
+        "AR.LGC.DAMPER_INFERIOR_PV":"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwifEBAATUVTLVBJLVBST0RcQVIuTEdDLkRBTVBFUl9JTkZFUklPUl9QVg/recorded?filterexpression=BadVal('.')=0&startTime=",
+        "AR.LGC.Pressao_Forno_DFF":"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwzn8BAATUVTLVBJLVBST0RcQVIuTEdDLlBSRVNTQU9fRk9STk9fREZG/recorded?filterexpression=BadVal('.')=0&startTime=",
+        "AR.LGC.Pressao_Snout":"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwz38BAATUVTLVBJLVBST0RcQVIuTEdDLlBSRVNTQU9fU05PVVQ/recorded?filterexpression=BadVal('.')=0&startTime=",
+        "AR.LGC.ZONA2_DFF_ON":"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwkPEBAATUVTLVBJLVBST0RcQVIuTEdDLlpPTkEyX0RGRl9PTg/recorded?filterexpression=BadVal('.')=0&startTime=",
+        "AR.LGC.ZONA1_DFF_ON":"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwkfEBAATUVTLVBJLVBST0RcQVIuTEdDLlpPTkExX0RGRl9PTg/recorded?filterexpression=BadVal('.')=0&startTime=",
+        "AR.LGC.Largura_Lote_Processo":"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZw3X8BAATUVTLVBJLVBST0RcQVIuTEdDLkxBUkdVUkFfTE9URV9QUk9DRVNTTw/recorded?filterexpression=BadVal('.')=0&startTime=",
+        "AR.LGC.Vazao_HNX":"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwsH8BAATUVTLVBJLVBST0RcQVIuTEdDLlZBWkFPX0hOWA/recorded?filterexpression=BadVal('.')=0&startTime=",
+        "AR.LGC.DAMPER_PRINCIPAL_PV":"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwhvEBAATUVTLVBJLVBST0RcQVIuTEdDLkRBTVBFUl9QUklOQ0lQQUxfUFY/recorded?filterexpression=BadVal('.')=0&startTime=",
+        "AR.LGC.ELETRICIDADE_LGC":"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwk_EBAATUVTLVBJLVBST0RcQVIuTEdDLkVMRVRSSUNJREFERV9MR0M/recorded?filterexpression=BadVal('.')=0&startTime=",
+        "AR.LGC.DAMPER_PRINCIPAL_SP":"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwh_EBAATUVTLVBJLVBST0RcQVIuTEdDLkRBTVBFUl9QUklOQ0lQQUxfU1A/recorded?filterexpression=BadVal('.')=0&startTime=",
+        "AR.LGC.REVESTIMENTO_SUPERIOR":"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwgvEBAATUVTLVBJLVBST0RcQVIuTEdDLlJFVkVTVElNRU5UT19TVVBFUklPUg/recorded?filterexpression=BadVal('.')=0&startTime=",
+        "AR.LGC.VAZAO_GN_LGC":"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwjfEBAATUVTLVBJLVBST0RcQVIuTEdDLlZBWkFPX0dOX0xHQw/recorded?filterexpression=BadVal('.')=0&startTime=",
+        "AR.LGC.PRESSAO_POST_COMBUSTION":"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwhPEBAATUVTLVBJLVBST0RcQVIuTEdDLlBSRVNTQU9fUE9TVF9DT01CVVNUSU9O/recorded?filterexpression=BadVal('.')=0&startTime=",
+        "AR.LGC.DAMPER_SUPERIOR_PV":"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwiPEBAATUVTLVBJLVBST0RcQVIuTEdDLkRBTVBFUl9TVVBFUklPUl9QVg/recorded?filterexpression=BadVal('.')=0&startTime=",
+        "AR.LGC.ZONA3_DFF_ON":"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwj_EBAATUVTLVBJLVBST0RcQVIuTEdDLlpPTkEzX0RGRl9PTg/recorded?filterexpression=BadVal('.')=0&startTime=",
         "AR.LGC.Ciclo_Lote_Processo":"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwIIoBAATUVTLVBJLVBST0RcQVIuTEdDLkNJQ0xPX0xPVEVfUFJPQ0VTU08/recorded?filterexpression=BadVal('.')=0&startTime=",
-        "AR.LGC.Numero_Lote_Processo":"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZw3H8BAATUVTLVBJLVBST0RcQVIuTEdDLk5VTUVST19MT1RFX1BST0NFU1NP/recorded?filterexpression=BadVal('.')=0&startTime="
+        "AR.LGC.Numero_Lote_Processo":"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZw3H8BAATUVTLVBJLVBST0RcQVIuTEdDLk5VTUVST19MT1RFX1BST0NFU1NP/recorded?filterexpression=BadVal('.')=0&startTime=",
+        "AR.LGC.Ar_Comb_Zona_1_PV_FIC110":"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwUvIBAATUVTLVBJLVBST0RcQVIuTEdDLkFSX0NPTUJfWk9OQV8xX1BWX0ZJQzExMA/recorded?filterexpression=BadVal('.')=0&startTime=",
+        "AR.LGC.Ar_Comb_Zona_1_SP_FIC110":"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwU_IBAATUVTLVBJLVBST0RcQVIuTEdDLkFSX0NPTUJfWk9OQV8xX1NQX0ZJQzExMA/recorded?filterexpression=BadVal('.')=0&startTime=",
+        "AR.LGC.Vazao_Gas_Zona_1_PV_FIC106":"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwVPIBAATUVTLVBJLVBST0RcQVIuTEdDLlZBWkFPX0dBU19aT05BXzFfUFZfRklDMTA2/recorded?filterexpression=BadVal('.')=0&startTime=",
+        "AR.LGC.Vazao_Gas_Zona_1_SP_FIC106":"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwVfIBAATUVTLVBJLVBST0RcQVIuTEdDLlZBWkFPX0dBU19aT05BXzFfU1BfRklDMTA2/recorded?filterexpression=BadVal('.')=0&startTime=",
+        "AR.LGC.Ar_Comb_Zona_1_PV_FIC210":"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwVvIBAATUVTLVBJLVBST0RcQVIuTEdDLkFSX0NPTUJfWk9OQV8xX1BWX0ZJQzIxMA/recorded?filterexpression=BadVal('.')=0&startTime=",
+        "AR.LGC.Ar_Comb_Zona_1_SP_FIC210":"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwV_IBAATUVTLVBJLVBST0RcQVIuTEdDLkFSX0NPTUJfWk9OQV8xX1NQX0ZJQzIxMA/recorded?filterexpression=BadVal('.')=0&startTime=",
+        "AR.LGC.Vazao_Gas_Zona_1_PV_FIC206":"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwWPIBAATUVTLVBJLVBST0RcQVIuTEdDLlZBWkFPX0dBU19aT05BXzFfUFZfRklDMjA2/recorded?filterexpression=BadVal('.')=0&startTime=",
+        "AR.LGC.Vazao_Gas_Zona_1_SP_FIC206":"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwWfIBAATUVTLVBJLVBST0RcQVIuTEdDLlZBWkFPX0dBU19aT05BXzFfU1BfRklDMjA2/recorded?filterexpression=BadVal('.')=0&startTime=",
+        "AR.LGC.Ar_Comb_Zona_3_PV_FI331":"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwWvIBAATUVTLVBJLVBST0RcQVIuTEdDLkFSX0NPTUJfWk9OQV8zX1BWX0ZJMzMx/recorded?filterexpression=BadVal('.')=0&startTime=",
+        "AR.LGC.Ar_Comb_Zona_3_SP_FI331":"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwW_IBAATUVTLVBJLVBST0RcQVIuTEdDLkFSX0NPTUJfWk9OQV8zX1NQX0ZJMzMx/recorded?filterexpression=BadVal('.')=0&startTime=",
+        "AR.LGC.Vazao_Gas_Zona_1_PV_FIC325":"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwXPIBAATUVTLVBJLVBST0RcQVIuTEdDLlZBWkFPX0dBU19aT05BXzFfUFZfRklDMzI1/recorded?filterexpression=BadVal('.')=0&startTime=",
+        "AR.LGC.Vazao_Gas_Zona_1_SP_FIC325":"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwXfIBAATUVTLVBJLVBST0RcQVIuTEdDLlZBWkFPX0dBU19aT05BXzFfU1BfRklDMzI1/recorded?filterexpression=BadVal('.')=0&startTime=",
+        "AR.LGC.VAZAO_H2_LGC":"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwvvIBAATUVTLVBJLVBST0RcQVIuTEdDLlZBWkFPX0gyX0xHQw/recorded?filterexpression=BadVal('.')=0&startTime=",
+        "AR.LGC.VAZAO_N2_LGC":"https://pivr.csn.com.br/piwebapi/streams/F1DPuIGA3ZNCXkyVOdMdUR1vZwv_IBAATUVTLVBJLVBST0RcQVIuTEdDLlZBWkFPX04yX0xHQw/recorded?filterexpression=BadVal('.')=0&startTime="
     }
 
     registers = []
