@@ -1,7 +1,6 @@
 import os
 import sys
 from time import strftime
-import psycopg2
 import requests
 import json
 from requests.auth import HTTPBasicAuth
@@ -14,32 +13,6 @@ import math
 import arrow
 import pytz
 
-
-
-def connect():
-
-    conn = None
-
-    dbname = os.environ['DB_NAME']
-    user = os.environ['DB_USER']
-    password = os.environ['DB_PASSWORD']
-    host = os.environ['DB_HOST']   
-    
-    try:
-        conn = psycopg2.connect(
-            dbname = dbname,
-            user = user,
-            password = password,
-            host = host
-        )
-
-    except Exception as error:
-        print(error)
-        print(traceback.format_exc())
-
-    finally:
-        if conn is not None:
-            return conn
 
 def round_date(date):
 
@@ -112,11 +85,10 @@ def set_processes(data, tag):
                 i+= 1
 
                 datetime_read = set_date(d['Timestamp'])
-
                 registers.append({
                     'capture_id':tag,
                     'datetime_read':datetime_read,
-                    'p_value':d['Value']
+                    'p_value':float(d['Value'])
                 })
 
                 if len(registers) == 50:
@@ -161,7 +133,7 @@ def set_filled_data(data, tag):
                 registers.append({
                     'capture_id':tag,
                     'datetime_read':current_date.strftime('%Y-%m-%dT%H:%M:%S-03:00'),
-                    'p_value':str(current_value)
+                    'p_value':float(current_value)
                 })
                 
                 current_date = current_date + timedelta(seconds=5)
@@ -425,63 +397,6 @@ def send_registers(data):
         print(traceback.format_exc())
 
 
-def insert_data_log(date, tag):
-
-    try:
-
-        data = (date, tag)
-
-        conn = None
-        sql = """
-                INSERT INTO online_data_log (datetime_last, id_capture)
-                    VALUES (%s, %s)
-                ON CONFLICT ON CONSTRAINT date_capture_uniq
-                DO NOTHING;
-        """
-
-        try:
-            conn = connect()
-            cur = conn.cursor()
-            cur.execute(sql, data)
-            cur.close()
-            conn.commit()    
-        except Exception as error:
-            print(error)
-        finally:
-            if conn is not None:
-                conn.close()
-
-    except Exception as error:
-        print(error)
-        print(traceback.format_exc())
-
-
-def update_data_log(date, tag):
-
-    data = (date, tag)
-    row = 0
-
-    conn = None
-    sql = """
-        UPDATE online_data_log
-            SET datetime_return=%s
-            WHERE id_capture=%s and datetime_return IS NULL;
-    """
-
-    try:
-        conn = connect()
-        cur = conn.cursor()
-        cur.execute(sql, data)
-        row = cur.rowcount
-        cur.close()
-        conn.commit()    
-    except Exception as error:
-        print(error)
-        print(traceback.format_exc())
-    finally:
-        if conn is not None:
-            conn.close()
-            return row
 
 
 def change_date_format(date):
