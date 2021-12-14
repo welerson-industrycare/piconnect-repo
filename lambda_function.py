@@ -111,14 +111,13 @@ def set_processes(data, tag):
         print(traceback.format_exc())
 
 
-def set_filled_data(data, tag):
+def set_filled_data(data, tag, date_2):
 
     registers = []
     array_threads = []
 
     try:
         if data: 
-            global date_2
             date_from = datetime.strptime(set_date(data[0]['Timestamp'])[0:19], '%Y-%m-%dT%H:%M:%S')
             date_to = datetime.strptime(date_2, '%Y-%m-%dT%H:%M')
             current_date = date_from
@@ -159,14 +158,13 @@ def set_filled_data(data, tag):
         print(traceback.format_exc())
 
 
-def set_processes_filters(data, tag):
+def set_processes_filters(data, tag, date_2):
 
     registers = []
     array_threads = []
 
     try:
         if data: 
-            global date_2
             date_from = datetime.strptime(set_date(data[0]['Timestamp'])[0:19], '%Y-%m-%dT%H:%M:%S')
             date_to = datetime.strptime(date_2, '%Y-%m-%dT%H:%M')
             current_date = date_from
@@ -606,7 +604,7 @@ def measurement_interval(date_from, date_to):
     return d_from, d_to
 
 
-if __name__ == '__main__':
+def lambda_handler(event, context):
 
     args = sys.argv
 
@@ -775,9 +773,9 @@ if __name__ == '__main__':
                     if t == 'AR.LGC.ELETRICIDADE_LGC':
                         set_measurement(res, t)
                     elif t in filters:
-                        set_processes_filters(res, t)
+                        set_processes_filters(res, t, date_2)
                     elif t in filled_data:
-                        set_filled_data(res, t)
+                        set_filled_data(res, t, date_2)
                     else:
                         set_processes(res, t)
             except Exception as error:
