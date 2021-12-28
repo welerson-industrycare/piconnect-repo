@@ -91,7 +91,7 @@ def set_processes(data, tag):
                     'p_value':float(d['Value'])
                 })
 
-                if len(registers) == 50:
+                if len(registers) == 150:
                     current = threading.Thread(target=send_registers, args=(registers.copy(),))
                     array_threads.append(current)
                     current.start()
@@ -139,7 +139,7 @@ def set_filled_data(data, tag, date_2):
 
 
 
-                if len(registers) == 50:
+                if len(registers) == 150:
                     current = threading.Thread(target=send_registers, args=(registers.copy(),))
                     array_threads.append(current)
                     current.start()
@@ -210,7 +210,7 @@ def set_processes_filters(data, tag, date_2):
 
 
 
-                if len(registers) == 50:
+                if len(registers) == 150:
                     current = threading.Thread(target=send_registers, args=(registers.copy(),))
                     array_threads.append(current)
                     current.start()
@@ -278,7 +278,7 @@ def set_measurement(data, tag):
 
                 current_date = next_interval
 
-                if len(registers) == 50:
+                if len(registers) == 150:
                     current = threading.Thread(target=send_registers, args=(registers.copy(),))
                     array_thread.append(current)
                     current.start()
